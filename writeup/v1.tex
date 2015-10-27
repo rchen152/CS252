@@ -1,0 +1,190 @@
+\RequirePackage[hyphens]{url}\documentclass[12pt,oneside]{amsart}
+\usepackage{euscript,mathtools,amsthm,amsfonts,amssymb}
+
+\newcommand{\kw}[1]{\mathbf{#1}}
+\newcommand{\lmd}[2]{\lambda #1.\;#2}
+\newcommand{\tab}{\hspace{0.5cm}}
+
+\renewcommand{\arraystretch}{1.25}
+
+\title{Escape analysis}
+\author{Tomo Kazahaya \and Rebecca Chen}
+
+\begin{document}
+
+\maketitle
+
+\section{Definitions}
+
+\subsection{Time-stamped $CESK^\ast$ machine}
+
+This section draws heavily from \cite{CS152, HM}.
+
+We consider the following language:
+\[\begin{array}{lll}
+    e \in Exp & ::= &
+        x \mid \lmd{x}{e} \mid e\;e \mid n \mid \delta\left(e,\ldots,e\right) \\
+    v \in Val & ::= & n \mid \lmd{x}{e} \\
+    x \in Var & & \text{a set of identifiers} \\
+    n \in \mathbb{Z}
+\end{array}\]
+A state of the time-stamped $CESK^\ast$ machine consists of a closure of an expression and an environment that maps variables to addresses, a store that maps addresses to closures or continuations, a continuation pointer, and a time:
+\[\begin{array}{lll}
+    \zeta \in \Sigma & = & Clos \times Store \times Addr \times Time \\
+    c \in Clos & = & Exp \times Env \\
+    \rho \in Env & = & Var \rightarrow Addr \\
+    \sigma \in Store & = & Addr \rightarrow Val \times Env + Kont \\
+    \kappa \in Kont & ::= & \kw{mt} \mid \langle\kw{ar}, c, a\rangle
+        \mid \langle\kw{fn}, \underline{v}, a\rangle \mid \\ & & \langle\pmb{\delta}, \langle\underline{v}, \ldots, \underline{v}\rangle, \langle c, \ldots, c\rangle, a\rangle \\
+    a \in Addr & & \text{an infinite set} \\
+    t \in Time & & \text{an infinite set} \\
+    \underline{v} \in Val \times Env
+\end{array}\]
+Functions $alloc$ and $tick$ return a fresh address in the store and the next time, respectively:
+\[\begin{array}{cc}
+    alloc : \Sigma \rightarrow Addr & tick : \Sigma \rightarrow Time
+\end{array}\]
+For an expression $e$, the initial state is given by the $inj$ function:
+\[inj(e) =
+    \langle\langle e, \emptyset\rangle, [a_0\mapsto\kw{mt}], a_0, t_0\rangle.\]
+Given a store $\sigma$ that maps $a_0$ to $\kw{mt}$, for all $a_k,\ldots,a_1\in Addr$ such that $\sigma\left(a_k\right) = \langle\ldots, a_{k-1}\rangle$, $\ldots$, $\sigma\left(a_1\right) = \langle\ldots, a_0\rangle$, we say that continuations $\sigma\left(a_{k-1}\right)$, $\ldots$, $\sigma\left(a_0\right)$ are inside continuation $\sigma\left(a_k\right)$ and furthermore that for all integers $i$, $j$ such that $0 \leq i < j \leq k$, $\sigma\left(a_j\right)$ is higher than $\sigma\left(a_i\right)$ in $\sigma\left(a_k\right)$.
+
+Figure \ref{fig:transitions} shows the transition rules.
+
+\begin{figure}[hbpt]
+\[\begin{array}{c}\hline
+\zeta \longrightarrow \zeta^\prime\text{, where } a^\prime = alloc(\zeta),
+    t^\prime = tick(\zeta) \\ \hline
+\begin{array}{c|l}
+    1 & \langle\langle x, \rho\rangle, \sigma, a, t\rangle \longrightarrow \\ &
+        \langle\underline{v}, \sigma, a, t^\prime\rangle \text{ where $\underline{v} = \sigma(\rho(x))$} \\
+    2 & \langle\langle e_1e_2, \rho\rangle, \sigma, a, t\rangle \longrightarrow \\ &
+        \langle\langle e_1, \rho\rangle, \sigma[a^\prime\mapsto\langle\kw{ar}, \langle e_2, \rho\rangle, a\rangle], a^\prime, t^\prime\rangle \\
+    3 & \langle\langle\delta(e_1,\ldots,e_k),\rho\rangle, \sigma, a, t\rangle
+        \longrightarrow \\ & \langle\langle e_1, \rho\rangle, \sigma[a^\prime\mapsto\langle\pmb{\delta}, \langle\rangle, \langle\langle e_2, \rho\rangle, \ldots, \langle e_k, \rho\rangle\rangle, a\rangle], a^\prime, t^\prime\rangle \\
+    & \langle\underline{v}, \sigma, a, t\rangle \longrightarrow \\
+    4 & \text{ if $\sigma(a) = \langle\kw{ar}, c, a^{\prime\prime}\rangle$} \\ &
+        \langle c, \sigma[a^\prime\mapsto\langle\kw{fn}, \underline{v}, a^{\prime\prime}\rangle], a^\prime, t^\prime\rangle \\
+    5 & \text{if $\sigma(a) = \langle\kw{fn}, \langle\lmd{x}{e}, \rho\rangle,
+        a^{\prime\prime}\rangle$} \\ & \langle\langle e, \rho[x\mapsto a^\prime]\rangle, \sigma[a^\prime\mapsto \underline{v}], a^{\prime\prime}, t^\prime\rangle \\
+    6 & \text{if $\sigma(a) = \langle\pmb{\delta}, \langle\underline{v_1}, \ldots,
+        \underline{v_m}\rangle, \langle c_1, \ldots, c_k\rangle, a^{\prime\prime}\rangle$} \\ & \langle c_1, \sigma[a^\prime\mapsto\langle\pmb{\delta}, \langle \underline{v_1}, \ldots, \underline{v_m}, \underline{v}\rangle, \langle c_2,\ldots,c_k\rangle,a^{\prime\prime}\rangle],a^\prime,t^\prime\rangle \\
+    7 & \text{if $\sigma(a) = \langle\pmb{\delta}, \langle\underline{v_1}, \ldots, \underline{v_m}\rangle, \langle\rangle, a^{\prime\prime}\rangle$} \\ &
+        \langle\langle n, \emptyset\rangle, \sigma, a^{\prime\prime}, t^\prime\rangle \text{ where $n = \delta\left(v_1,\ldots,v_m,v\right)$} \\
+\end{array} \\ \hline \end{array}\]
+\caption{Transitions}
+\label{fig:transitions}
+\end{figure}
+
+\subsection{Closure escapement}
+
+Intuitively, a closure escapes when the continuation in which it was created is not inside a continuation in which it is used.
+
+More precisely, Figure \ref{fig:creation} defines a use set and a create set of closures for the injection to the initial state as well as each of the transition rules.  Let $c$ be a closure that appears in the create set of either the transition from a state $\langle\verb|_|, \verb|_|, a_\text{create}, \verb|_|\rangle$ or the injection to the initial state (in which case $a_\text{create} = a_0$).  Then $c$ escapes if and only if there exists a state $\langle\verb|_|, \sigma, a_\text{use}, \verb|_|\rangle$ such that $c$ is in the use set of the transition from the state and the highest $\kw{fn}$ or $\kw{mt}$ continuation in $\sigma\left(a_\text{create}\right)$ is not inside $\sigma\left(a_\text{use}\right)$.
+
+\begin{figure}[hbpt]
+\[\begin{array}{c|l|l}\hline
+  & \text{use set} & \text{create set} \\ \hline
+inj(e) & \emptyset & \{\langle e, \emptyset\rangle\} \\
+1 & \emptyset & \emptyset \\
+2 & \{\langle e_1e_2, \rho\rangle\} &
+    \{\langle e_1, \rho\rangle, \langle e_2, \rho\rangle\} \\
+3 & \{\langle \delta\left(e_1, \ldots, e_k\right), \rho\rangle\} &
+    \{\langle e_1, \rho\rangle, \ldots, \langle e_k, \rho\rangle\} \\
+4 & \emptyset & \emptyset \\
+5 & \{\langle\lmd{x}{e}, \rho\rangle\} &
+    \{\langle e, \rho[x\mapsto a^\prime\rangle\} \\
+6 & \emptyset & \emptyset \\
+7 & \{\underline{v_1}, \ldots, \underline{v_m}, \underline{v}\} &
+    \{\langle n, \emptyset\rangle\} \text{ where $n = \delta\left(v_1, \ldots, v_m, v\right)$} \\ \hline
+\end{array}\]
+\caption{Closure use and creation}
+\label{fig:creation}
+\end{figure}
+
+\subsubsection{Example}
+
+Using
+\[\begin{array}{ll}
+Time = Addr = \mathbb{Z}, & a_0 = t_0 = 0, \\
+alloc\langle\verb|_|, \verb|_|, \verb|_|, t\rangle = t, & tick\langle\verb|_|, \verb|_|, \verb|_|, t\rangle = t + 1,
+\end{array}\]
+evaluating the expression $(\lmd{f}{f\;7})\;((\lmd{x}{\lmd{y}{x+y}}) \; 5)$ yields the final state $\langle \langle 12, \emptyset\rangle, \sigma, 0, 15\rangle$, where $\sigma =$
+\[\begin{array}{rll}
+[0 & \mapsto & \kw{mt}, \\
+1 & \mapsto & \langle\kw{ar}, \langle (\lmd{x}{\lmd{y}{x + y}}) \; 5,
+    \emptyset\rangle, 0\rangle, \\
+2 & \mapsto & \langle\kw{fn}, \langle\lmd{f}{f\;7}, \emptyset\rangle, 0\rangle, \\
+3 & \mapsto & \langle\kw{ar}, \langle 5, \emptyset\rangle, 2\rangle, \\
+4 & \mapsto & \langle\kw{fn}, \langle\lmd{x}\lmd{y}{x+y}, \emptyset\rangle, 2\rangle, \\
+5 & \mapsto & \langle 5, \emptyset\rangle, \\
+6 & \mapsto & \langle\lmd{y}{x+y}, [x\mapsto 5]\rangle, \\
+7 & \mapsto & \langle\kw{ar}, \langle 7, [f\mapsto 6]\rangle, 0\rangle, \\
+9 & \mapsto & \langle\kw{fn}, \langle\lmd{y}{x+y}, [x\mapsto 5]\rangle, 0\rangle, \\
+10 & \mapsto & \langle 7, [f\mapsto 6]\rangle, \\
+11 & \mapsto & \langle\kw{+}, \langle\rangle, \langle\langle y, [x\mapsto 5,
+    y\mapsto 10]\rangle\rangle, 0\rangle, \\
+13 & \mapsto & \langle\kw{+}, \langle\langle 5, \emptyset\rangle\rangle, \langle\rangle, 0\rangle].
+\end{array}\]
+The closures that escape are
+\begin{itemize}
+    \item $\langle 5, \emptyset\rangle$, created in $\sigma(2)$ and used in
+        $\sigma(13)$;
+    \item $\langle x + y, [x\mapsto 5, y\mapsto 10]\rangle$, created in $\sigma(9)$ and
+        used in $\sigma(0)$; and
+    \item $\langle\lmd{y}{x+y}, [x\mapsto 5]\rangle$, created in $\sigma(4)$ and used in $\sigma(9)$.
+\end{itemize}
+
+\subsection{Recording escape information}
+
+The state is extended with a set of escaping closures, and a closure remembers the address of the continuation in which it was created.  Instead of a single continuation pointer, we keep around a pair of addresses so that the highest $\kw{fn}$ or $\kw{mt}$ continuation is immediately available.
+\[\begin{array}{lll}
+    \zeta \in \Sigma & = & Clos \times Store \times (Addr \times Addr) \times
+        \\ & & Time \times \mathcal{P}(Clos) \\
+    c \in Clos & = & Exp \times Env \times Addr \\
+    \sigma \in Store & = & Addr \rightarrow Val \times Env \times Addr + Kont \\
+    \kappa \in Kont & ::= & \kw{mt} \mid \langle\kw{ar}, c, \underline{a}\rangle \mid
+        \langle\kw{fn}, \underline{v}, \underline{a}\rangle \mid \\ & & \langle\pmb{\delta}, \langle\underline{v}, \ldots, \underline{v}\rangle, \langle c, \ldots, c\rangle, \underline{a}\rangle \\
+    \underline{a} \in Addr \times Addr \\
+    \underline{v} \in Val \times Env \times Addr
+\end{array}\]
+For an expression $e$, we now have
+\[inj(e) = \langle\langle e, \emptyset, a_0\rangle, [a_0\mapsto\kw{mt}], \langle a_0, a_0\rangle, t_0, \emptyset\rangle,\]
+and the new transition rules are in Figure \ref{fig:escape_info}.
+
+\begin{figure}[hbpt]
+\[\begin{array}{c}\hline
+\zeta \longrightarrow \zeta^\prime\text{, where } a^\prime = alloc(\zeta),
+    t^\prime = tick(\zeta), C[c_1,\ldots,c_k]\sigma = \\ C \cup \{c_i \mid \sigma\left(a_i\right) \in Kont\text{, where }\langle\verb|_|, \verb|_|, a_i\rangle = c_i, 1\leq i\leq k\}\\ \hline
+\begin{array}{c|l}
+    1 & \langle\langle x, \rho, a_\text{create}\rangle, \sigma, \underline{a}, t, C\rangle
+        \longrightarrow \\ & \langle\underline{v}, \sigma, \underline{a}, t^\prime, C\rangle \text{ where $\underline{v} = \sigma(\rho(x))$} \\
+    2 & \langle\langle e_1e_2, \rho, a_\text{create}\rangle, \sigma,
+        \langle a, a_\kw{fn}\rangle, t, C\rangle \longrightarrow \\ & \langle\langle e_1, \rho, a_\kw{fn}\rangle, \sigma[a^\prime\mapsto\langle\kw{ar}, \langle e_2, \rho, a_\kw{fn}\rangle, \langle a, a_\kw{fn}\rangle\rangle], \\ & \tab \langle a^\prime, a_\kw{fn}\rangle, t^\prime, C[\langle e_1e_2, \rho, a_\text{create}\rangle]\sigma\rangle \\
+    3 & \langle\langle\delta(e_1,\ldots,e_k),\rho,a_\text{create}\rangle, \sigma,
+        \langle a, a_\kw{fn}\rangle, t, C\rangle \longrightarrow \\ & \langle\langle e_1, \rho, a_\kw{fn}\rangle, \sigma[a^\prime\mapsto\langle\pmb{\delta}, \langle\rangle, \langle\langle e_2, \rho, a_\kw{fn}\rangle, \ldots, \langle e_k, \rho, a_\kw{fn}\rangle\rangle, \langle a, a_\kw{fn}\rangle\rangle], \\ & \tab \langle a^\prime, a_\kw{fn}\rangle, t^\prime, C[\langle\delta(e_1,\ldots,e_k),\rho,a_\text{create}\rangle]\sigma\rangle \\
+    & \langle\underline{v}, \sigma, \langle a, a_\kw{fn}\rangle, t, C\rangle
+        \longrightarrow \\
+    4 & \text{ if $\sigma(a) = \langle\kw{ar}, c, \underline{a}^{\prime\prime}\rangle$} \\
+        & \langle c, \sigma[a^\prime\mapsto\langle\kw{fn}, \underline{v}, \underline{a}^{\prime\prime}\rangle], \langle a^\prime, a^\prime\rangle, t^\prime, C\rangle \\
+    5 & \text{if $\sigma = \sigma^\prime[a\mapsto\langle\kw{fn}, \langle\lmd{x}{e}, \rho,
+        a_\text{create}\rangle, \underline{a}^{\prime\prime}\rangle]$} \\ & \langle\langle e, \rho[x\mapsto a^\prime], a_\kw{fn}\rangle, \sigma^\prime[a^\prime\mapsto \underline{v}], \underline{a}^{\prime\prime}, t^\prime, C[\langle\lmd{x}{e}, \rho,
+        a_\text{create}\rangle]\sigma\rangle \\
+    6 & \text{if $\sigma(a) = \langle\pmb{\delta}, \langle\underline{v_1}, \ldots,
+        \underline{v_m}\rangle, \langle c_1, \ldots, c_k\rangle, \underline{a}^{\prime\prime}\rangle$} \\ & \langle c_1, \sigma[a^\prime\mapsto\langle\pmb{\delta}, \langle \underline{v_1}, \ldots, \underline{v_m}, \underline{v}\rangle, \langle c_2,\ldots,c_k\rangle,\underline{a}^{\prime\prime}\rangle],\langle a^\prime, a_\text{fn}\rangle,t^\prime, C\rangle \\
+    7 & \text{if $\sigma(a) = \langle\pmb{\delta}, \langle\underline{v_1}, \ldots, \underline{v_m}\rangle, \langle\rangle, \underline{a}^{\prime\prime}\rangle$} \\ &
+        \langle\langle n, \emptyset, a_\kw{fn}\rangle, \sigma, \underline{a}^{\prime\prime}, t^\prime, C[\underline{v_1}, \ldots, \underline{v_m}, \underline{v}]\sigma\rangle \\ & \tab \text{ where $n = \delta\left(v_1,\ldots,v_m,v\right)$} \\
+\end{array} \\ \hline \end{array}\]
+\caption{Transitions with escape information}
+\label{fig:escape_info}
+\end{figure}
+
+\begin{thebibliography}{99}
+
+\bibitem{CS152} Abstract Register Machines. Lecture notes at \url{http://www.seas.harvard.edu/courses/cs152/2015sp/} (accessed October 2015).
+
+\bibitem{HM} D.~Van Horn and M.~Might. Abstracting Abstract Machines. International Conference on Functional Programming 2010, 51---62 (September 2010).
+
+\end{thebibliography}
+
+\end{document}
