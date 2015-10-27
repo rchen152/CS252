@@ -10,8 +10,8 @@
   (x variable-not-otherwise-mentioned)
   (op * / + -)
   (c (e r))
-  (r ((x a) ...))
-  (s ((a vk) ...))
+  (r any)
+  (s any)
   (k mt
      (ar c a)
      (fn vr a)
@@ -21,18 +21,18 @@
   (vk vr k)
   (vr (v r)))
 (define-metafunction tCESK*
-  [(inj e) ((e ()) ((0 mt)) 0 1)])
+  [(empty) ,(hash)])
+(define-metafunction tCESK*
+  [(lookup any_key any_map) ,(hash-ref (term any_map) (term any_key))])
+(define-metafunction tCESK*
+  [(insert any_key any_val any_map) ,(hash-set (term any_map) (term any_key) (term any_val))])
+(define-metafunction tCESK*
+  [(inj e) ((e (empty)) (insert 0 mt (empty)) 0 1)])
 (define-metafunction tCESK*
   [(dlt * number ...) ,(apply * (term (number ...)))]
   [(dlt / number ...) ,(apply / (term (number ...)))]
   [(dlt + number ...) ,(apply + (term (number ...)))]
   [(dlt - number ...) ,(apply - (term (number ...)))])
-(define-metafunction tCESK*
-  [(lookup x r) ,(second (assoc (term x) (term r)))]
-  [(lookup a s) ,(second (assoc (term a) (term s)))])
-(define-metafunction tCESK*
-  [(insert x a r) ,(cons (term (x a)) (term r))]
-  [(insert a vk s) ,(cons (term (a vk)) (term s))])
 (define-metafunction tCESK*
   [(tick t) ,(+ (term t) 1)])
 (define-metafunction tCESK*
@@ -61,5 +61,5 @@
         (where (op (vr_1 ...) (c_1 c_2 ...) a_pp) (lookup a s)) "6")
    (--> ((v r_n) s a t)
         ,(let ([t_p (term (tick t))] [a_p (term (alloc t))])
-           (term (((dlt op v_1 ... v) ()) s a_pp ,t_p)))
+           (term (((dlt op v_1 ... v) (empty)) s a_pp ,t_p)))
         (where (op ((v_1 r_n1) ...) () a_pp) (lookup a s)) "7")))
