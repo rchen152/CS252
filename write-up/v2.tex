@@ -1,0 +1,122 @@
+\RequirePackage[hyphens]{url}\documentclass[12pt,oneside]{amsart}
+\usepackage{euscript,mathtools,amsthm,amsfonts,amssymb}
+
+\newcommand{\kw}[1]{\mathbf{#1}}
+\newcommand{\lmd}[2]{\lambda #1.\;#2}
+\newcommand{\tab}{\hspace{0.5cm}}
+
+\renewcommand{\arraystretch}{1.25}
+
+\title{Escape analysis}
+\author{Tomo Kazahaya \and Rebecca Chen}
+
+\begin{document}
+
+\maketitle
+
+\section{Definitions}
+
+\subsection{Time-stamped $CESK^\ast$ machine}
+
+This section draws heavily from \cite{CS152, HM}.
+
+We consider the following language:
+\[\begin{array}{lll}
+    e \in Exp & ::= &
+        x \mid \lmd{x}{e} \mid e\;e \mid n \mid \delta\left(e,\ldots,e\right) \\
+    v \in Val & ::= & n \mid \lmd{x}{e} \\
+    x \in Var & & \text{a set of identifiers} \\
+    n \in \mathbb{Z}
+\end{array}\]
+A state of the time-stamped $CESK^\ast$ machine consists of a closure of an expression and an environment that maps variables to addresses, a store that maps addresses to closures or continuations, a continuation pointer, and a time:
+\[\begin{array}{lll}
+    \zeta \in \Sigma & = & Clos \times Store \times Addr \times Time \\
+    c \in Clos & = & Exp \times Env \\
+    \underline{v} \in \underline{Val} & = & Val \times Env \\
+    \rho \in Env & = & Var \rightarrow Addr \\
+    \sigma \in Store & = & Addr \rightarrow \underline{Val} + Kont \\
+    \kappa \in Kont & ::= & \kw{mt} \mid \langle\kw{ar}, c, a\rangle
+        \mid \langle\kw{fn}, \underline{v}, a\rangle \mid \\ & & \langle\pmb{\delta}, \langle\underline{v}, \ldots, \underline{v}\rangle, \langle c, \ldots, c\rangle, a\rangle \\
+    a \in Addr & & \text{an infinite set} \\
+    t \in Time & & \text{an infinite set} \\
+\end{array}\]
+Functions $alloc$ and $tick$ return a fresh address in the store and the next time, respectively:
+\[\begin{array}{cc}
+    alloc : \Sigma \rightarrow Addr & tick : \Sigma \rightarrow Time
+\end{array}\]
+For an expression $e$, the initial state is given by the $inj$ function:
+\[inj(e) =
+    \langle\langle e, \emptyset\rangle, [a_0\mapsto\kw{mt}], a_0, t_0\rangle.\]
+Given a store $\sigma$ that maps $a_0$ to $\kw{mt}$, for all $a_k,\ldots,a_1\in Addr$ such that $\sigma\left(a_k\right) = \langle\ldots, a_{k-1}\rangle$, $\ldots$, $\sigma\left(a_1\right) = \langle\ldots, a_0\rangle$, we say that continuations $\sigma\left(a_{k-1}\right)$, $\ldots$, $\sigma\left(a_0\right)$ are inside continuation $\sigma\left(a_k\right)$ and furthermore that for all integers $i$, $j$ such that $0 \leq i < j \leq k$, $\sigma\left(a_j\right)$ is higher than $\sigma\left(a_i\right)$ in $\sigma\left(a_k\right)$.
+
+Figure \ref{fig:transitions} shows the transition rules.
+
+\begin{figure}[hbpt]
+\[\begin{array}{c}\hline
+\zeta \longrightarrow \zeta^\prime\text{, where } a^\prime = alloc(\zeta),
+    t^\prime = tick(\zeta) \\ \hline
+\begin{array}{c|l}
+    1 & \langle\langle x, \rho\rangle, \sigma, a, t\rangle \longrightarrow \\ &
+        \langle\underline{v}, \sigma, a, t^\prime\rangle \text{ where $\underline{v} = \sigma(\rho(x))$} \\
+    2 & \langle\langle e_1e_2, \rho\rangle, \sigma, a, t\rangle \longrightarrow \\ &
+        \langle\langle e_1, \rho\rangle, \sigma[a^\prime\mapsto\langle\kw{ar}, \langle e_2, \rho\rangle, a\rangle], a^\prime, t^\prime\rangle \\
+    3 & \langle\langle\delta(e_1,\ldots,e_k),\rho\rangle, \sigma, a, t\rangle
+        \longrightarrow \\ & \langle\langle e_1, \rho\rangle, \sigma[a^\prime\mapsto\langle\pmb{\delta}, \langle\rangle, \langle\langle e_2, \rho\rangle, \ldots, \langle e_k, \rho\rangle\rangle, a\rangle], a^\prime, t^\prime\rangle \\
+    & \langle\underline{v}, \sigma, a, t\rangle \longrightarrow \\
+    4 & \text{ if $\sigma(a) = \langle\kw{ar}, c, a^{\prime\prime}\rangle$} \\ &
+        \langle c, \sigma[a^\prime\mapsto\langle\kw{fn}, \underline{v}, a^{\prime\prime}\rangle], a^\prime, t^\prime\rangle \\
+    5 & \text{if $\sigma(a) = \langle\kw{fn}, \langle\lmd{x}{e}, \rho\rangle,
+        a^{\prime\prime}\rangle$} \\ & \langle\langle e, \rho[x\mapsto a^\prime]\rangle, \sigma[a^\prime\mapsto \underline{v}], a^{\prime\prime}, t^\prime\rangle \\
+    6 & \text{if $\sigma(a) = \langle\pmb{\delta}, \langle\underline{v_1}, \ldots,
+        \underline{v_m}\rangle, \langle c_1, \ldots, c_k\rangle, a^{\prime\prime}\rangle$} \\ & \langle c_1, \sigma[a^\prime\mapsto\langle\pmb{\delta}, \langle \underline{v_1}, \ldots, \underline{v_m}, \underline{v}\rangle, \langle c_2,\ldots,c_k\rangle,a^{\prime\prime}\rangle],a^\prime,t^\prime\rangle \\
+    7 & \text{if $\sigma(a) = \langle\pmb{\delta}, \langle\underline{v_1}, \ldots, \underline{v_m}\rangle, \langle\rangle, a^{\prime\prime}\rangle$} \\ &
+        \langle\langle n, \emptyset\rangle, \sigma, a^{\prime\prime}, t^\prime\rangle \text{ where $n = \delta\left(v_1,\ldots,v_m,v\right)$} \\
+\end{array} \\ \hline \end{array}\]
+\caption{Transitions}
+\label{fig:transitions}
+\end{figure}
+
+\subsection{Closure escapement}
+
+If we think of the current continuation as the program stack, intuitively an escaping closure is one that is used after its creating continuation has been popped from the current continuation.
+
+Figure \ref{fig:creation} defines a use set and a create set of closures for each of the transition rules.  The creating continuation of the closures in a create set is the highest $\kw{fn}$ continuation, if one exists, inside the current continuation immediately before the transition is applied, and $\kw{mt}$ otherwise.
+
+The empty continuation $\kw{mt}$ is always inside the current continuation, while a $\kw{fn}$ continuation at address $a$ being popped at time $t$ means that transition rule 5 was applied at $t$.
+
+Let $c$ be a closure with creating continuation $\kappa$, and let $t_\text{pop}$ be the time at which $\kappa$ is popped.  Then $c$ escapes if and only if there exists a time $t_\text{use}$ such that $c$ is in the use set of the transition starting at $t_\text{use}$ and $t_\text{pop} < t_\text{use}$.
+
+\begin{figure}[hbpt]
+\[\begin{array}{c|l|l}\hline
+  & \text{use set} & \text{create set} \\ \hline
+1 & \emptyset & \emptyset \\
+2 & \{\langle e_1e_2, \rho\rangle\} &
+    \{\langle e_1, \rho\rangle, \langle e_2, \rho\rangle\} \\
+3 & \{\langle \delta\left(e_1, \ldots, e_k\right), \rho\rangle\} &
+    \{\langle e_1, \rho\rangle, \ldots, \langle e_k, \rho\rangle\} \\
+4 & \emptyset & \emptyset \\
+5 & \{\langle\lmd{x}{e}, \rho\rangle\} &
+    \{\langle e, \rho[x\mapsto a^\prime]\rangle\} \\
+6 & \emptyset & \emptyset \\
+7 & \{\underline{v_1}, \ldots, \underline{v_m}, \underline{v}\} &
+    \{\langle n, \emptyset\rangle\} \text{ where $n = \delta\left(v_1, \ldots, v_m, v\right)$} \\ \hline
+\end{array}\]
+\caption{Closure use and creation}
+\label{fig:creation}
+\end{figure}
+
+\subsection{Recording escape information}
+
+We would like to instantiate the machine in such a way that at the time of a closure's creation, we can already predict the time at which its creating continuation will be popped off.  We can then save this information directly in the closure.  When the closure is used, we simply compare the time in the closure to the current time.
+
+To be able to make this prediction, we could, e.g., have the time keep around a string of bits for $\kw{fn}$ continuations.  Whenever a $\kw{fn}$ continuation is created, we append a $0$ to the right end of the string, and when one is popped, we flip the rightmost $0$ to a $1$.  So at the time that a closure is created, we have some string $b_1\cdots b_k$.  Either $b_1 = \cdots = b_k = 1$, or when the closure's creating continuation is popped off, the rightmost $0$ flips to a $1$.  So when the closure is used, we simply take the leftmost $k$ bits from the string: if the numerical value is greater than the value of $b_1\cdots b_k$, then the closure has escaped, and otherwise it has not.  The drawback to this approach is that finding the rightmost unset bit may require iterating through the entire bit string.
+
+\begin{thebibliography}{99}
+
+\bibitem{CS152} Abstract Register Machines. Lecture notes at \url{http://www.seas.harvard.edu/courses/cs152/2015sp/} (accessed October 2015).
+
+\bibitem{HM} D.~Van Horn and M.~Might. Abstracting Abstract Machines. International Conference on Functional Programming 2010, 51---62 (September 2010).
+
+\end{thebibliography}
+
+\end{document}
