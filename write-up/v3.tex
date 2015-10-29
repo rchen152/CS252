@@ -1,0 +1,114 @@
+\RequirePackage[hyphens]{url}\documentclass[12pt,oneside]{amsart}
+\usepackage{euscript,mathtools,amsthm,amsfonts,amssymb}
+
+\newcommand{\kw}[1]{\mathbf{#1}}
+\newcommand{\lmd}[2]{\lambda #1.\;#2}
+\newcommand{\tab}{\hspace{0.5cm}}
+
+\renewcommand{\arraystretch}{1.25}
+
+\title{Escape analysis}
+\author{Tomo Kazahaya \and Rebecca Chen}
+
+\begin{document}
+
+\maketitle
+
+\section{Definitions}
+
+\subsection{Intuition}
+
+In $\kw{let}\;x = v\;\kw{in}\;e$, the value $v$ escapes if it is used outside $e$.  We will consider the lambda calculus:
+\[\begin{array}{lll}
+    e \in Exp & ::= & x \mid \lmd{x}{e} \mid e\;e \\
+    v \in Val & ::= & \lmd{x}{e} \\
+    x \in Var & & \text{a set of identifiers}
+\end{array}\]
+in which the equivalent expression is $(\lmd{x}{e})\; v$.  So $v$ - an abstraction - escapes if it is applied outside $e$.
+
+\subsection{Modifying the time-stamped $CESK^\ast$ machine}
+
+This section draws heavily from \cite{CS152, HM}.
+
+A state of the time-stamped $CESK^\ast$ machine consists of an expression, an environment that maps variables to addresses, a store that maps addresses to closures or continuations, a continuation pointer, and a time.
+\[\begin{array}{lll}
+    \zeta \in \Sigma & = & Exp \times Env \times Store \times Addr \times Time \\
+    \rho \in Env & = & Var \rightarrow Addr \\
+    \sigma \in Store & = & Addr \rightarrow Val \times Exp + Kont \\
+    \kappa \in Kont & ::= & \kw{mt} \mid \langle\kw{ar}, e, \rho, a\rangle
+        \mid \langle\kw{fn}, v, \rho, a\rangle \mid \\
+    a \in Addr & & \text{an infinite set} \\
+    t \in Time & & \text{an infinite set}
+\end{array}\]
+Functions $alloc$ and $tick$ return a fresh address in the store and the next time, respectively:
+\[\begin{array}{cc}
+    alloc : \Sigma \rightarrow Addr & tick : \Sigma \rightarrow Time
+\end{array}\]
+For an expression $e$, the initial state is given by the $inj$ function:
+\[inj(e) =
+    \langle e, \emptyset, [a_0\mapsto\kw{mt}], a_0, t_0\rangle.\]
+
+Figure \ref{fig:transitions} shows the transition rules.
+\begin{figure}[hbpt]
+\[\begin{array}{c}\hline
+\zeta \longrightarrow \zeta^\prime\text{, where } a^\prime = alloc(\zeta),
+    t^\prime = tick(\zeta) \\ \hline
+\begin{array}{l|l}
+    1 & \langle x, \rho, \sigma, a, t\rangle \longrightarrow \\ &
+        \langle v, \rho_v, \sigma, a, t^\prime\rangle \text{ where $\langle v, \rho_v\rangle = \sigma(\rho(x))$} \\
+    2 & \langle e_1e_2, \rho, \sigma, a, t\rangle \longrightarrow \\ &
+        \langle e_1, \rho, \sigma[a^\prime\mapsto\langle\kw{ar}, e_2, \rho, a\rangle], a^\prime, t^\prime\rangle \\
+    & \langle v, \rho, \sigma, a, t\rangle \longrightarrow \\
+    3 & \text{if $\sigma(a) = \langle\kw{ar}, e, \rho_\kappa, a_\kappa\rangle$} \\
+        & \langle e, \rho_\kappa, \sigma[a^\prime\mapsto\langle\kw{fn}, v, \rho, a_\kappa\rangle], a^\prime, t^\prime\rangle \\
+    4 & \text{if $\sigma(a) = \langle\kw{fn}, \lmd{x}{e}, \rho_\kappa,
+        a_\kappa\rangle$} \\ & \langle e, \rho_\kappa[x\mapsto a^\prime], \sigma[a^\prime\mapsto \langle v, \rho\rangle], a_\kappa, t^\prime\rangle
+\end{array} \\ \hline \end{array}\]
+\caption{Transitions of the time-stamped $CESK^\ast$ machine}
+\label{fig:transitions}
+\end{figure}
+Rule 4, in which an abstraction is applied, is the crucial one.  We need to check whether $\lmd{x}{e}$ has escaped as well as somehow store the information that $v$ escapes if it is applied after the evaluation of $e$ has finished.  What we do is tag $v$ with $a_\kappa$, the address of the continuation that we will go to when we are done evaluating $e$:
+\[Val ::= \lmd{x}{e} \mid (\lmd{x}{e})^a\]
+The new transition rules are in Figure \ref{fig:escape_transitions}.
+\begin{figure}[hbpt]
+\[\begin{array}{c}\hline
+\zeta \longrightarrow \zeta^\prime\text{, where } a^\prime = alloc(\zeta),
+    t^\prime = tick(\zeta) \\ \hline
+\begin{array}{l|l}
+    1 & \langle x, \rho, \sigma, a, t\rangle \longrightarrow \\ &
+        \langle v, \rho_v, \sigma, a, t^\prime\rangle \text{ where $\langle v, \rho_v\rangle = \sigma(\rho(x))$} \\
+    2 & \langle e_1e_2, \rho, \sigma, a, t\rangle \longrightarrow \\ &
+        \langle e_1, \rho, \sigma[a^\prime\mapsto\langle\kw{ar}, e_2, \rho, a\rangle], a^\prime, t^\prime\rangle \\
+    & \langle v, \rho, \sigma, a, t\rangle \longrightarrow \\
+    3 & \text{if $\sigma(a) = \langle\kw{ar}, e, \rho_\kappa, a_\kappa\rangle$} \\
+        & \langle e, \rho_\kappa, \sigma[a^\prime\mapsto\langle\kw{fn}, v, \rho, a_\kappa\rangle], a^\prime, t^\prime\rangle \\
+    4 & \text{if $\sigma(a) = \langle\kw{fn}, v_\kappa, \rho_\kappa, a_\kappa\rangle$, $v_\kappa = \lmd{x_\kappa}{e_\kappa}$ or
+        $\left(\lmd{x_\kappa}{e_\kappa}\right)^{a_\text{abs}}$}\\
+    4a & \text{if $v = \lmd{x}{e}$} \\
+    & \langle e_\kappa, \rho_\kappa[x_\kappa\mapsto a^\prime], \sigma[a^\prime\mapsto\langle
+        v^{a_\kappa}, \rho\rangle], a_\kappa, t^\prime\rangle\\
+    4b & \text{if $v = (\lmd{x}{e})^{a_v}$} \\
+    & \langle e_\kappa, \rho_\kappa[x_\kappa\mapsto a^\prime], \sigma[a^\prime\mapsto\langle
+        v, \rho\rangle], a_\kappa, t^\prime\rangle
+\end{array} \\ \hline \end{array}\]
+\caption{Transitions of the modified time-stamped $CESK^\ast$ machine}
+\label{fig:escape_transitions}
+\end{figure}
+In Rule 4a, $v$ is tagged with the continuation pointer when it is put into the store for the first time.  Rule 4b preserves the tag on a $v$ that was previously put into the store and read out again.  In both rules, the abstraction $v_k$ that is applied escapes if it has a tag $a_\text{abs}$ that is not reachable in $\sigma$ from $a_\kappa$, where reachability is defined as follows:
+
+Let $a, a^\prime\in Addr$ and $\sigma\in Store$.
+\[a\longrightarrow_{\sigma}a^\prime :=
+    \text{``$\sigma(a)=\langle\kw{ar},\_,\_,a^\prime\rangle$ or $\sigma(a)=\langle\kw{fn},\_,\_,a^\prime\rangle$''}\]
+\[\text{``$a^\prime$ is reachable in $\sigma$ from $a$''} :=
+    a\longrightarrow_{\sigma}^\ast a^\prime\]
+Note that any address is reachable from itself.
+
+\begin{thebibliography}{99}
+
+\bibitem{CS152} Abstract Register Machines. Lecture notes at \url{http://www.seas.harvard.edu/courses/cs152/2015sp/} (accessed October 2015).
+
+\bibitem{HM} D.~Van Horn and M.~Might. Abstracting Abstract Machines. International Conference on Functional Programming 2010, 51---62 (September 2010).
+
+\end{thebibliography}
+
+\end{document}
